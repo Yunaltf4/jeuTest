@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <!-- Auteur : Tony Ton -->
+    <style>
+        body {
+            background: #100e49;
+        }
+
+        canvas {
+            margin: 0 auto;
+            background-color: white;
+            border: 1px solid black;
+            display: block;
+            background-image: url("images/debut.png");
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas width="1000px" height="800px"></canvas>
+    <script>
+        //Récupérer la balise canvas et définir son contexte de dessin en 2d
+        let leCanvas = document.querySelector("canvas");
+        let ctx = leCanvas.getContext("2d");
+
+        let vaisseau = {
+            img: new Image(),
+            urlImage: "images/vaisseauCentre.png",
+            x: 0,
+            y: 0,
+            largeur: 128,
+            hauteur: 140,
+            vitesseX: 5,
+        }
+        //charger les images
+        vaisseau.img.src = vaisseau.urlImage;
+        vaisseau.x = (leCanvas.width - vaisseau.largeur) / 2;
+        vaisseau.y = leCanvas.height - vaisseau.hauteur;
+
+        let piece = {
+            img: new Image(),
+            urlImage: "images/piece.png",
+            x: 0,
+            y: 0,
+            vitesseY: 7,
+            largeur: 59.6,
+            hauteur: 48,
+            nbVignettes: 7,
+            indexVignette: 0,
+            sourceX: 0
+        }
+        piece.img.src = piece.urlImage;
+        piece.x = Math.random() * (leCanvas.width - piece.largeur);
+        let imageFinJeu = {
+            img: new Image(),
+            urlImage: "images/imageFinJeu.png",
+            x: 0,
+            y: 0,
+        }
+        imageFinJeu.img.src = imageFinJeu.urlImage;
+        let finJeu = false;
+        //Objet pour gérer les touches fléchées du clavier
+        let fleches = {
+            gauche: false,
+            droite: false,
+        };
+        let clavier = {
+            toucheV: false,
+            toucheEnter: false,
+        }
+        let affichage = {
+            piece: 3,
+            hp: 3,
+        }
+        let sonFondJeu = new Audio("sons/Playing God, Polyphia (8bit Cover).mp3");
+        let sonCollision = new Audio("sons/Bonk.mp3");
+        let sonPiece = new Audio("sons/piece.mp3");
+        let lesBoulesDeFeu = [];
+        let abiliteActif = true;
+        let piecePlusPourLaVitesseDesbouleDeFeu = 0;
+        let piecePlusPourLeNbDebouleDeFeu = 1;
+        ////////////////////////////// DÉMARRAGE ET ÉVÉNEMENTS DU JEU ///////////////////////////////////
+        //Creation de la variable pour actualiserJeu
+        let intervalID;//interval du jeu
+        let intervalPiece;//interval des pieces
+        let intervalDessinerbouleDeFeu;
+        let intervalChangerImage;
+        //lancement du jeu
+        leCanvas.addEventListener("click", lancerLeJeu);
+        //Ecouteur pour les touches du clavier
+        document.addEventListener("keydown", presserTouche);
+        document.addEventListener("keyup", relacherTouche);
+        /////////////////////////// LES FONCTIONS ////////////////////////////////////////////////////////////
+        function lancerLeJeu() {
+            leCanvas.style.backgroundImage = "url('images/espace.png')";//Image de fond du jeu
+            intervalID = setInterval(actualiserJeu, 1000 / 60);//Commencer l'actualisationJeu
+            intervalPiece = setInterval(animationPiece, 1000 / 7);
+            intervalDessinerbouleDeFeu = setInterval(mettreUneBouleDeFeu, 1000 / (1 + piecePlusPourLeNbDebouleDeFeu));
+            intervalChangerImage = setInterval(changerImage, 1000 / 6);
+            leCanvas.removeEventListener("click", lancerLeJeu);//Enlever l'ecouteur pour lancer le jeu
+            sonFondJeu.play();
+            let siCollisionEntreVaisseauEtPiece = detecterCollision(piece, vaisseau);
+            if (siCollisionEntreVaisseauEtPiece) {
+                piecePlusPourLaVitesseDesbouleDeFeu += 3;
+            }
+        }
+        function actualiserJeu() {
+            ctx.clearRect(0, 0, leCanvas.width, leCanvas.height);//Effacer tout le canvas
+            deplacerVaisseau();//Appel de la fonction deplacerVaisseau
+            abiliteVaisseau();//Appel de la fontion abilitVaisseau
+            dessinerbouleDefeu();
+            apparaitrePiece();
+            pieceTombe();
+            deplacerBouleDeFeu();
+            let siCollisionEntreVaisseauEtPiece = detecterCollision(piece, vaisseau);
+            if (siCollisionEntreVaisseauEtPiece) {
+                piece.y = -400;
+                piece.x = Math.random() * (leCanvas.width - piece.largeur);
+                affichage.piece++;
+                piecePlusPourLaVitesseDesbouleDeFeu += 0.2;
+                sonPiece.play();
+            }
+            leCanvas.removeEventListener("click", lancerLeJeu);//Enlever l'ecouteur de lancerLeJeu
+
+            let collisionbouleDeFeuEtVaisseau;
+            for (let uneBouleDeFeu of lesBoulesDeFeu) {
+                collisionbouleDeFeuEtVaisseau = detecterCollision(uneBouleDeFeu, vaisseau);
+                if (collisionbouleDeFeuEtVaisseau) {
+                    sonCollision.play();
+                    let i = lesBoulesDeFeu.indexOf(uneBouleDeFeu);
+                    lesBoulesDeFeu.splice(i, 1);
+                    affichage.hp -= 1; 
+                }
+                if (affichage.hp == 0) {
+                    ctx.drawImage(imageFinJeu.img,imageFinJeu.x , imageFinJeu.y);
+                    clearInterval(intervalID);
+                    clearInterval(intervalChangerImage);
+                    clearInterval(intervalDessinerbouleDeFeu);
+                    clearInterval(intervalPiece);
+                    finJeu = true;
+                }   
+            }
+
+        }
+        function deplacerVaisseau() {
+            //Deplacement du vaisseau vers la droite 
+            if (fleches.droite) {
+                vaisseau.x += vaisseau.vitesseX;
+                vaisseau.img.src = "images/vaisseauDroite.png"//Affiche l'image du vaisseau vers la droite
+            }
+            //Deplacement du vaisseau vers la gauche
+            if (fleches.gauche) {
+                vaisseau.x -= vaisseau.vitesseX;
+                vaisseau.img.src = "images/vaisseauGauche.png"//Affiche l'image du vaisseau vers la gauche
+            }
+            //S'il se colle au côté gauche le remet à la même place
+            if (vaisseau.x < 0) {
+                vaisseau.x = 0;
+            }
+            //S'il se colle au côté droite le remet à la même place
+            let xMax = leCanvas.width - vaisseau.largeur;
+            if (vaisseau.x > xMax) {
+                vaisseau.x = xMax;
+            }
+            //Dessine le vaiseau
+            ctx.drawImage(vaisseau.img, vaisseau.x, vaisseau.y);
+            // ctx.drawImage(imgtest.img,imgtest.x,imgtest.y);
+        }
+        function abiliteVaisseau() {
+            /*Si l'abilite est true, que la touche v est appuye, 
+            que la touche gauche est appuye et que coin est + que 1, 
+            deplace le vaisseau vers la gauche de 200px*/
+            if (abiliteActif && clavier.toucheV && fleches.gauche && affichage.piece >= 1) {
+                vaisseau.x = vaisseau.x - 250;
+                affichage.piece--;
+                abiliteActif = false;
+            }
+            /*Si l'abilite est true, que la touche v est appuye, 
+            que la touche droite est appuye et que coin est + que 1, 
+            deplace le vaisseau vers la droite de 200px*/
+            if (abiliteActif && clavier.toucheV && fleches.droite && affichage.piece >= 1) {
+                vaisseau.x = vaisseau.x + 250;
+                affichage.piece--;
+                abiliteActif = false;
+            }
+        }
+
+        function pieceTombe() {
+            piece.y += piece.vitesseY
+            ctx.drawImage(piece.img, piece.sourceX, 0, piece.largeur, piece.hauteur, piece.x, piece.y, piece.largeur, piece.hauteur);
+        }
+        function animationPiece() {
+            piece.sourceX = piece.indexVignette * piece.largeur;
+
+            piece.indexVignette += 1;
+
+            if (piece.indexVignette == piece.nbVignettes) {
+                piece.indexVignette = 0;
+            }
+        }
+        function apparaitrePiece() {
+            if (piece.y > 2 * leCanvas.height) {
+                piece.y = 0;
+                piece.x = Math.random() * (leCanvas.width - piece.largeur);
+            }
+        }
+        function mettreUneBouleDeFeu() {
+            let bouleDeFeu = {
+                img: new Image(),
+                urlImage: "images/bouleDeFeu.png",
+                x: 0,
+                y: 0,
+                vitesseY: 7 + piecePlusPourLaVitesseDesbouleDeFeu,
+                largeur: 81,
+                hauteur: 170,
+                nbVignettes: 6,
+                indexVignette: 0,
+                sourceX: 0
+            }
+            bouleDeFeu.img.src = bouleDeFeu.urlImage;
+            //Position initial des x de bouleDeFeu
+            bouleDeFeu.x = Math.random() * (leCanvas.width - bouleDeFeu.largeur);
+
+            //Mettre une boule de feu dans le tableau des boules de feu
+            lesBoulesDeFeu.push(bouleDeFeu);
+        }
+        function dessinerbouleDefeu() {
+            for (let unebouleDeFeu of lesBoulesDeFeu) {
+                ctx.drawImage(unebouleDeFeu.img, unebouleDeFeu.sourceX, 0, unebouleDeFeu.largeur, unebouleDeFeu.hauteur, unebouleDeFeu.x, unebouleDeFeu.y, unebouleDeFeu.largeur, unebouleDeFeu.hauteur);
+            }
+        }
+        function changerImage() {
+            for (i = 0; i < lesBoulesDeFeu.length; i++) {
+                let unebouleDeFeu = lesBoulesDeFeu[i];
+                gererImageObjetsAnimes(unebouleDeFeu);
+            }
+        }
+        function deplacerBouleDeFeu() {
+            for (let unebouleDeFeu of lesBoulesDeFeu) {
+                unebouleDeFeu.y += unebouleDeFeu.vitesseY;
+                ctx.drawImage(unebouleDeFeu.img, unebouleDeFeu.sourceX, 0, unebouleDeFeu.largeur, unebouleDeFeu.hauteur, unebouleDeFeu.x, unebouleDeFeu.y, unebouleDeFeu.largeur, unebouleDeFeu.hauteur);
+                if (unebouleDeFeu.y > leCanvas.height) {
+                    let i = lesBoulesDeFeu.indexOf(unebouleDeFeu);
+                    lesBoulesDeFeu.splice(i, 1);
+                }
+            }
+        }
+        // Détecte quelles touches sont appuyées
+        function presserTouche(event) {
+            //Enregistrer si une touche gauche/droite est pressée
+            if (event.keyCode == 39) {
+                //flèche droite
+                fleches.droite = true;
+            }
+            if (event.keyCode == 37) {
+                //flèche gauche
+                fleches.gauche = true;
+            }
+            if (event.keyCode == 86) {
+                //touche v
+                clavier.toucheV = true;
+            }
+            if (event.keyCode == 13 && finJeu == true) {
+                document.location.reload();
+            }
+        }
+
+        // Détecte quelles touches sont relâchées
+        function relacherTouche(event) {
+            //Enregistrer si une touche gauche/droite est relâchée
+            if (event.keyCode == 39) {
+                //flèche droite
+                fleches.droite = false;
+                vaisseau.img.src = "images/vaisseauCentre.png";//Affiche l'image du vaisseau au centre
+            }
+            if (event.keyCode == 37) {
+                //flèche gauche
+                fleches.gauche = false;
+                vaisseau.img.src = "images/vaisseauCentre.png";//Affiche l'image du vaisseau au centre
+            }
+            if (event.keyCode == 86) {
+                clavier.toucheV = false;
+                //touche v
+                abiliteActif = true;
+            }
+        }
+        //Fonction pour gérer les vignettes à afficher pour chaque animation
+        function gererImageObjetsAnimes(objetAnim) {
+            //Définir la coordonnée sourceX de la vignette à afficher
+            objetAnim.sourceX = objetAnim.indexVignette * objetAnim.largeur;
+
+            //Incrémenter et gérer l’index de la prochaine vignette à afficher
+            objetAnim.indexVignette++;
+
+            if (objetAnim.indexVignette == objetAnim.nbVignettes) {
+                objetAnim.indexVignette = 0;
+            }
+        }
+        function detecterCollision(leRectangle, leCercle) {
+            //Calculs du rayon et des coordonnées x et y du centre du cercle
+            let rayonCercle = leCercle.largeur / 2;
+            let centreX_duCercle = leCercle.x + rayonCercle;
+            let centreY_duCercle = leCercle.y + rayonCercle;
+
+            //La problématique est avec les coins des images
+            //Il faut donc vérifier de quel côté du rectangle se situe le cercle?
+            //Le code va d'abord tester quel coin du rectangle est le plus proche du cercle,
+            let coinX = centreX_duCercle;
+            let coinY = centreY_duCercle;
+            if (centreX_duCercle < leRectangle.x) {
+                coinX = leRectangle.x; //coin gauche
+            } else if (centreX_duCercle > leRectangle.x + leRectangle.largeur) {
+                coinX = leRectangle.x + leRectangle.largeur; // coin droit
+            }
+
+            if (centreY_duCercle < leRectangle.y) {
+                coinY = leRectangle.y; // coin supérieur
+            } else if (centreY_duCercle > leRectangle.y + leRectangle.hauteur) {
+                coinY = leRectangle.y + leRectangle.hauteur; // coin inférieur
+            }
+
+            //Maintenant que nous savons quel coin vérifier, nous utilisons
+            //le théorème de Pythagore en utilisant le centre du cercle et le coin identifié
+            let distanceX = centreX_duCercle - coinX;
+            let distanceY = centreY_duCercle - coinY;
+            let distanceXY = Math.sqrt(distanceX * distanceX + distanceY * distanceY);
+
+            //I y a une détection de collision si la distanceXY est plus petite que le rayon du cercle.
+            if (distanceXY <= rayonCercle) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+    </script>
+</body>
+
+</html>
